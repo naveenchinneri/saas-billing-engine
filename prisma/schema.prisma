@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PAID
+  FAILED
+}
+
+model Organization {
+  id                String         @id @default(uuid()) @db.Uuid
+  name              String         @db.VarChar(255)
+  slug              String         @unique @db.VarChar(100)
+  stripeCustomerId  String?        @map("stripe_customer_id") @db.VarChar(255)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  users             User[]
+  subscription      Subscription?
+  invoices          Invoice[]
+  usageMeters       UsageMeter[]
+
+  @@map("organizations")
+}
+
+model User {
+  id               String       @id @default(uuid()) @db.Uuid
+  organizationId   String       @map("organization_id") @db.Uuid
+  email            String       @unique @db.VarChar(255)
+  passwordHash     String       @map("password_hash") @db.VarChar(255)
+  role             UserRole     @default(MEMBER)
+  refreshTokenHash String?      @map("refresh_token_hash") @db.VarChar(255)
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId], name: "idx_users_org_id")
+  @@map("users")
+}
+
+model Plan {
+  id                   String         @id @default(uuid()) @db.Uuid
+  name                 String         @db.VarChar(50)
+  tier                 String         @unique @db.VarChar(50)
+  priceCents           Int            @map("price_cents")
+  currency             String         @default("EUR") @db.VarChar(3)
+  maxApiCallsPerMonth  Int            @map("max_api_calls_per_month")
+
+  subscriptions        Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  organizationId     String             @unique @map("organization_id") @db.Uuid
+  planId             String             @map("plan_id") @db.Uuid
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime           @map("current_period_start")
+  currentPeriodEnd   DateTime           @map("current_period_end")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan               Plan               @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                 String        @id @default(uuid()) @db.Uuid
+  organizationId     String        @map("organization_id") @db.Uuid
+  amountCents        Int           @map("amount_cents")
+  currency           String        @default("EUR") @db.VarChar(3)
+  status             InvoiceStatus @default(DRAFT)
+  pdfS3Url           String?       @map("pdf_s3_url") @db.Text
+  idempotencyKey     String?       @unique @map("idempotency_key") @db.VarChar(255)
+  billingPeriodStart DateTime      @map("billing_period_start")
+  billingPeriodEnd   DateTime      @map("billing_period_end")
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId], name: "idx_invoices_org_id")
+  @@map("invoices")
+}
+
+model UsageMeter {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  metricName     String       @map("metric_name") @db.VarChar(100)
+  quantity       Int          @default(1)
+  recordedAt     DateTime     @default(now()) @map("recorded_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, metricName, recordedAt], name: "idx_usage_org_metric")
+  @@map("usage_meters")
+}
